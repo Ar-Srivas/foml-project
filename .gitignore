@@ -24,3 +24,5 @@ test_data/
 __pycache__/
 
 patches/
+
+.env

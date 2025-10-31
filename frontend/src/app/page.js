@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { ImagePreview } from "../components/ImagePreview";
 import { ResultCard } from "../components/ResultCard";
 
@@ -10,6 +11,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [uploadedImageUrl, setUploadedImageUrl] = useState(null);
   const [manyResults, setManyResults] = useState(null);
+  const [selectedLabel, setSelectedLabel] = useState(null);
 
   const handleFileChange = (e) => {
     if (e.target.files[0]) {
@@ -49,7 +51,9 @@ export default function Home() {
       const data = await res.json();
 
       if (data.predictions && data.predictions.length > 0) {
-        setResult(data.predictions[0]);
+        const pred = data.predictions[0];
+        setResult(pred);
+        setSelectedLabel(pred.label);
       } else {
         setResult({ label: "No Detection", confidence: 0 });
       }
@@ -82,114 +86,146 @@ export default function Home() {
     setLoading(false);
   };
 
-  return (
-    <div className="min-h-screen flex flex-col items-center bg-gradient-to-br from-gray-50 to-gray-100 text-gray-800 p-10">
-      <h1 className="text-4xl font-extrabold mb-10 text-center text-black-700 drop-shadow-sm">
-        Fruit & Veg Classifier
-      </h1>
+  // Extract ingredient name from label (e.g., "FreshApple" -> "apple")
+  const getIngredientFromLabel = (label) => {
+    if (!label) return "";
+    return label.replace(/^(Fresh|Rotten)/, "").toLowerCase();
+  };
 
-      {/* Upload + Preview Section */}
-      <div className="flex flex-col md:flex-row justify-center items-start gap-10 w-full max-w-6xl mb-12">
-        {/* Upload Box */}
-        <div className="bg-white shadow-lg rounded-2xl p-6 flex flex-col items-center w-full md:w-1/2 border border-black-200">
-          <h2 className="text-xl font-semibold mb-4 text-black-700">Upload Image</h2>
+  const handleViewRecipes = () => {
+    if (selectedLabel) {
+      const ingredient = getIngredientFromLabel(selectedLabel);
+      window.location.href = `/recipes?ingredients=${encodeURIComponent(ingredient)}`;
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col items-center p-6 bg-gray-50">
+      <h1 className="text-4xl font-bold mb-8 text-black">Food & Veg Predictor</h1>
+
+      <div className="flex flex-col lg:flex-row items-start gap-8 w-full max-w-7xl">
+        {/* Left Section - Upload */}
+        <div className="flex flex-col items-center gap-4">
+          <ImagePreview file={file} />
 
           <input
             type="file"
             onChange={handleFileChange}
             accept="image/*"
-            className="border border-gray-300 p-2 rounded-md w-full text-sm mb-6 focus:ring-2 focus:ring-green-400"
+            className="border p-2 rounded-md w-80 text-sm text-black"
           />
 
-          <div className="flex gap-4">
-            <button
-              onClick={handlePredictSingle}
-              disabled={!file || loading}
-              className={`px-6 py-2 rounded-md text-white font-medium transition-colors ${
-                loading
-                  ? "bg-gray-400"
-                  : "bg-blue-500 hover:bg-blue-600"
-              }`}
-            >
-              {loading ? "Predicting..." : "Single Prediction"}
-            </button>
+          <button
+            onClick={handlePredictSingle}
+            disabled={!file || loading}
+            className="px-6 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 w-80 disabled:bg-gray-400"
+          >
+            {loading ? "Predicting..." : "Predict Single"}
+          </button>
 
-            <button
-              onClick={handlePredictMany}
-              disabled={!file || loading}
-              className={`px-6 py-2 rounded-md text-white font-medium transition-colors ${
-                loading
-                  ? "bg-gray-400"
-                  : "bg-green-500 hover:bg-green-600"
-              }`}
-            >
-              {loading ? "Predicting..." : "Patch Prediction"}
-            </button>
-          </div>
+          <button
+            onClick={handlePredictMany}
+            disabled={!file || loading}
+            className="px-6 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 w-80 disabled:bg-gray-400"
+          >
+            {loading ? "Predicting Many..." : "Predict Many Patches"}
+          </button>
         </div>
 
-        {/* Image Preview */}
-        <div className="bg-white shadow-lg rounded-2xl p-6 flex flex-col items-center w-full md:w-1/2 border border-black-200">
-          <h2 className="text-xl font-semibold mb-4 text-black-700">Preview</h2>
-          <div className="w-full h-80 flex items-center justify-center bg-gray-100 rounded-lg border border-dashed border-gray-300">
-            <ImagePreview file={file} />
-          </div>
+        {/* Middle Section - Uploaded Image */}
+        <div className="flex flex-col items-center gap-4">
+          <h3 className="text-lg font-semibold text-black">Uploaded Image</h3>
+          {uploadedImageUrl ? (
+            <img
+              src={uploadedImageUrl}
+              alt="Uploaded"
+              className="max-w-sm max-h-80 border rounded-md shadow-md"
+              onError={() => setUploadedImageUrl(null)}
+            />
+          ) : (
+            <div className="w-80 h-60 flex items-center justify-center text-gray-400 border rounded-md bg-white">
+              Upload an image to see it here
+            </div>
+          )}
+        </div>
+
+        {/* Right Section - Single Result */}
+        <div className="flex flex-col items-center gap-4">
+          <h3 className="text-lg font-semibold text-black">Single Prediction</h3>
+          {result ? (
+            <div className="w-72">
+              <ResultCard
+                label={result.label}
+                confidence={result.confidence}
+                bbox={result.bbox}
+              />
+              {result.label !== "Error" && result.label !== "No Detection" && (
+                <Link
+                  href={`/recipes?ingredients=${encodeURIComponent(
+                    getIngredientFromLabel(result.label)
+                  )}`}
+                  className="mt-4 block w-full text-center px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600"
+                >
+                  What to do with this?
+                </Link>
+              )}
+            </div>
+          ) : (
+            <div className="w-72 h-40 flex items-center justify-center text-gray-400 border rounded-md bg-white">
+              Single prediction will appear here
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Single Prediction */}
-      {result && (
-        <div className="bg-white rounded-2xl shadow-lg p-6 w-full max-w-lg mb-10 text-center border border-gray-200">
-          <h3 className="text-xl font-semibold mb-4 text-black-700">Single Prediction</h3>
-          <ResultCard
-            label={result.label}
-            confidence={result.confidence}
-            bbox={result.bbox}
-          />
-        </div>
-      )}
-
-      {/* Many Predictions */}
+      {/* Many Predictions Section */}
       {manyResults && (
-        <div className="bg-white rounded-2xl shadow-lg p-6 w-full max-w-6xl border border-black-200">
-          <h2 className="text-2xl font-bold mb-4 text-black-700">Patch Analysis (It takes 8 patches)</h2>
+        <div className="w-full max-w-7xl mt-8">
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <h2 className="text-2xl font-bold mb-4 text-black">
+              Patch Analysis Results
+            </h2>
 
-          <div className="mb-4 text-sm text-black-600">
-            <span className="font-medium">Total Patches:</span> {manyResults.total_patches} |
-            <span className="font-medium ml-2">Above Threshold:</span> {manyResults.patches_above_threshold}
-          </div>
+            <div className="mb-4 text-sm text-gray-600">
+              <span className="font-medium">Total Patches:</span>{" "}
+              {manyResults.total_patches} |
+              <span className="font-medium ml-2">Above Threshold:</span>{" "}
+              {manyResults.patches_above_threshold}
+            </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {manyResults.predictions?.map((prediction, idx) => (
-              <div
-                key={idx}
-                className={`border rounded-xl p-3 shadow-sm transition-all hover:shadow-md ${
-                  prediction.below_threshold
-                    ? "bg-gray-100 border-gray-300 opacity-75"
-                    : "bg-green-50 border-green-300"
-                }`}
-              >
-                <img
-                  src={`http://127.0.0.1:8000${prediction.patch_url}`}
-                  alt={`Patch ${prediction.patch_id}`}
-                  className="w-full h-36 object-cover rounded-lg mb-3"
-                />
-                <div className="text-center">
-                  <p className="font-semibold text-gray-800">{prediction.label}</p>
-                  <p
-                    className={`font-medium ${
-                      prediction.confidence > 0.7
-                        ? "text-green-600"
-                        : prediction.confidence > 0.4
-                        ? "text-yellow-500"
-                        : "text-red-500"
-                    }`}
-                  >
-                    {(prediction.confidence * 100).toFixed(1)}%
-                  </p>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+              {manyResults.predictions?.map((prediction, idx) => (
+                <div
+                  key={idx}
+                  className={`border rounded-lg p-3 ${
+                    prediction.below_threshold
+                      ? "bg-gray-100 border-gray-300"
+                      : "bg-green-50 border-green-300"
+                  }`}
+                >
+                  <img
+                    src={`http://127.0.0.1:8000${prediction.patch_url}`}
+                    alt={`Patch ${prediction.patch_id}`}
+                    className="w-full h-20 object-cover rounded mb-2"
+                  />
+                  <div className="text-xs">
+                    <p className="font-medium text-black truncate">
+                      {prediction.label}
+                    </p>
+                    <p
+                      className={`${
+                        prediction.confidence > 0.6
+                          ? "text-green-600"
+                          : "text-orange-500"
+                      }`}
+                    >
+                      {(prediction.confidence * 100).toFixed(1)}%
+                    </p>
+                    <p className="text-gray-500">Patch {prediction.patch_id}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
       )}

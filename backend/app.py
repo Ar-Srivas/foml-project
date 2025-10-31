@@ -8,9 +8,10 @@ from tensorflow.keras.models import load_model
 import numpy as np
 import os
 import uuid
+from recipe_api import dish_router
 
 app = FastAPI()
-
+app.include_router(dish_router, prefix="/api")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -165,3 +166,5 @@ async def get_patch(filename: str):
 
     with open(patch_path, "rb") as f:
         return StreamingResponse(io.BytesIO(f.read()), media_type="image/png")
+
+
