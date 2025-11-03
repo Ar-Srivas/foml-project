@@ -1,14 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { API_BASE_URL } from "../../config/api";
-export default function RecipesPage() {
+
+function RecipesContent() {
   const searchParams = useSearchParams();
   const [recipes, setRecipes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [ingredients, setIngredients] = useState("");
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     const ingredientsParam = searchParams.get("ingredients");
@@ -20,18 +22,33 @@ export default function RecipesPage() {
 
   const fetchRecipes = async (ingredientsList) => {
     setLoading(true);
-    const response = await fetch(
-      `${API_BASE_URL}/api/recipes/?ingredients=${encodeURIComponent(
-        ingredientsList
-      )}&number=2`
-    );
-    const data = await response.json();
-    setRecipes(data);
+    setError(null);
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/recipes/?ingredients=${encodeURIComponent(
+          ingredientsList
+        )}&number=2`
+      );
+
+      if (!response.ok) throw new Error("Failed to fetch recipes");
+
+      const data = await response.json();
+      setRecipes(data);
+    } catch (err) {
+      console.error("Recipe fetch error:", err);
+      setError(err.message || "Failed to load recipes");
+      setRecipes([]);
+    }
+
     setLoading(false);
   };
 
   const handleGetRecipes = async () => {
-    if (!ingredients.trim()) return;
+    if (!ingredients.trim()) {
+      setError("Please enter at least one ingredient");
+      return;
+    }
     fetchRecipes(ingredients);
   };
 
@@ -55,6 +72,9 @@ export default function RecipesPage() {
         </div>
 
         <div className="bg-white rounded-lg shadow-md p-6 mb-8">
+          <h2 className="text-xl font-semibold mb-4 text-black">
+            What ingredients do you have?
+          </h2>
           <div className="flex gap-2">
             <input
               type="text"
@@ -73,6 +93,12 @@ export default function RecipesPage() {
             </button>
           </div>
         </div>
+
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-md mb-6">
+            {error}
+          </div>
+        )}
 
         {loading ? (
           <div className="text-center text-gray-500 py-12">Loading recipes...</div>
@@ -131,6 +157,15 @@ export default function RecipesPage() {
                       </div>
                     </div>
                   )}
+
+                  <a
+                    href={`https://spoonacular.com/recipes/${recipe.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-4 inline-block w-full text-center px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                  >
+                    View Full Recipe
+                  </a>
                 </div>
               </div>
             ))}
@@ -142,5 +177,13 @@ export default function RecipesPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function RecipesPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <RecipesContent />
+    </Suspense>
   );
 }
