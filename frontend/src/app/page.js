@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ImagePreview } from "../components/ImagePreview";
 import { ResultCard } from "../components/ResultCard";
-
+import { API_BASE_URL } from "../config/api";
 export default function Home() {
   const [file, setFile] = useState(null);
   const [result, setResult] = useState(null);
@@ -27,14 +27,14 @@ export default function Home() {
     const formData = new FormData();
     formData.append("file", file);
 
-    const uploadRes = await fetch("http://127.0.0.1:8000/upload/", {
+    const uploadRes = await fetch(`${API_BASE_URL}/upload/`, {
       method: "POST",
       body: formData,
     });
 
     if (!uploadRes.ok) throw new Error("Upload failed");
 
-    setUploadedImageUrl("http://127.0.0.1:8000/display/");
+    setUploadedImageUrl(`${API_BASE_URL}/display/`);
     return true;
   };
 
@@ -47,7 +47,7 @@ export default function Home() {
     try {
       await uploadImage();
 
-      const res = await fetch("http://127.0.0.1:8000/predict/");
+      const res = await fetch(`${API_BASE_URL}/predict/`);
       const data = await res.json();
 
       if (data.predictions && data.predictions.length > 0) {
@@ -74,7 +74,7 @@ export default function Home() {
     try {
       await uploadImage();
 
-      const res = await fetch("http://127.0.0.1:8000/predict_many/?threshold=0.6");
+      const res = await fetch(`${API_BASE_URL}/predict_many/?threshold=0.6`);
       const data = await res.json();
 
       setManyResults(data);
@@ -204,7 +204,7 @@ export default function Home() {
                   }`}
                 >
                   <img
-                    src={`http://127.0.0.1:8000${prediction.patch_url}`}
+                    src={`${API_BASE_URL}/${prediction.patch_url}`}
                     alt={`Patch ${prediction.patch_id}`}
                     className="w-full h-20 object-cover rounded mb-2"
                   />

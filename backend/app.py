@@ -12,9 +12,22 @@ from recipe_api import dish_router
 
 app = FastAPI()
 app.include_router(dish_router, prefix="/api")
+
+FRONTEND_URL = os.getenv("FRONTEND_URL", "localhost:3000")
+ENV = os.getenv("ENV", "development")  # Default to "development" if ENV is not set
+
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    FRONTEND_URL,
+]
+
+if ENV == "production":
+    ALLOWED_ORIGINS = [FRONTEND_URL, f"https://{FRONTEND_URL}"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -166,5 +179,3 @@ async def get_patch(filename: str):
 
     with open(patch_path, "rb") as f:
         return StreamingResponse(io.BytesIO(f.read()), media_type="image/png")
-
-

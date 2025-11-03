@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-
+import { API_BASE_URL } from "../../config/api";
 export default function RecipesPage() {
   const searchParams = useSearchParams();
   const [recipes, setRecipes] = useState([]);
@@ -21,7 +21,7 @@ export default function RecipesPage() {
   const fetchRecipes = async (ingredientsList) => {
     setLoading(true);
     const response = await fetch(
-      `http://127.0.0.1:8000/api/recipes/?ingredients=${encodeURIComponent(
+      `${API_BASE_URL}/api/recipes/?ingredients=${encodeURIComponent(
         ingredientsList
       )}&number=2`
     );
