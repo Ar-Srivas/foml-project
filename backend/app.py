@@ -13,21 +13,26 @@ from recipe_api import dish_router
 app = FastAPI()
 app.include_router(dish_router, prefix="/api")
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "localhost:3000")
-ENV = os.getenv("ENV", "development")  # Default to "development" if ENV is not set
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     FRONTEND_URL,
+    "https://foml.arijitsrivastava.tech",
 ]
 
-if ENV == "production":
-    ALLOWED_ORIGINS = [FRONTEND_URL, f"https://{FRONTEND_URL}"]
+if ENVIRONMENT == "production":
+    ALLOWED_ORIGINS = [
+        "https://foml.arijitsrivastava.tech",
+        FRONTEND_URL,
+    ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -47,6 +52,11 @@ uploaded_image = {"image_bytes": None, "original_image": None}
 PATCHES_DIR = "patches"
 os.makedirs(PATCHES_DIR, exist_ok=True)
 current_patches = {"patches": []}
+
+@app.get("/")
+async def root():
+    return {"message": "health check is working"}
+
 
 @app.post("/upload/")
 async def upload_image(file: UploadFile = File(...)):
