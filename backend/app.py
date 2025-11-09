@@ -3,12 +3,11 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 import io
-import tensorflow as tf
-from tensorflow.keras.models import load_model
-import numpy as np
 import os
-import uuid
 from recipe_api import dish_router
+from model_classifier import predict_single_image
+from model_finetuned import detect_and_classify, draw_predictions_on_image
+
 
 app = FastAPI()
 app.include_router(dish_router, prefix="/api")
@@ -37,155 +36,191 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-model = load_model("model4.keras")
+# Global storage for uploaded image
+uploaded_image = {"image_bytes": None, "original_image": None, "detections": None}
 
-class_names = [
-    'FreshApple', 'FreshBanana', 'FreshCarrot',
-    'FreshCucumber', 'FreshMango', 'FreshOrange', 'FreshPotato',
-    'FreshStrawberry', 'FreshTomato', 'RottenApple', 'RottenBanana',
-    'RottenCarrot', 'RottenCucumber', 'RottenMango',
-    'RottenOrange', 'RottenPotato', 'RottenStrawberry', 'RottenTomato'
-]
-
-uploaded_image = {"image_bytes": None, "original_image": None}
-
-PATCHES_DIR = "patches"
-os.makedirs(PATCHES_DIR, exist_ok=True)
-current_patches = {"patches": []}
 
 @app.get("/")
 async def root():
-    return {"message": "health check is working"}
+    return {
+        "message": "running",
+        "status": "healthy",
+        "endpoints": {
+            "upload": "/upload/",
+            "display": "/display/",
+            "predict_single": "/predict/",
+            "predict_multiple": "/predict_many/",
+            "visualize": "/visualize/",
+            "summary": "/summary/",
+            "recipes": "/api/recipes/"
+        }
+    }
 
 
 @app.post("/upload/")
 async def upload_image(file: UploadFile = File(...)):
     try:
-        image = Image.open(file.file).convert("RGB")
-        uploaded_image["original_image"] = image.copy()
-        img_resized = image.resize((128, 128))
-        img_bytes = io.BytesIO()
-        img_resized.save(img_bytes, format="PNG")
-        img_bytes.seek(0)
-        uploaded_image["image_bytes"] = img_bytes
+        # Validate file type
+        if not file.content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="File must be an image")
 
-        return {"message": "Image uploaded successfully"}
+        # Read file content
+        contents = await file.read()
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+        uploaded_image["original_image"] = image.copy()
+
+        # Store as bytes for display
+        img_bytes = io.BytesIO()
+        image.save(img_bytes, format="PNG")
+        img_bytes.seek(0)
+        uploaded_image["image_bytes"] = img_bytes.getvalue()
+
+        # Reset detections on new upload
+        uploaded_image["detections"] = None
+
+        return {
+            "message": "Image uploaded successfully",
+            "image_size": image.size,
+            "mode": image.mode,
+            "display_url": "/display/"
+        }
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid image: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid image: {str(e)}")
+
 
 @app.get("/display/")
 async def display_image():
     if uploaded_image["image_bytes"] is None:
         raise HTTPException(status_code=404, detail="No uploaded image found")
-    uploaded_image["image_bytes"].seek(0)
-    return StreamingResponse(uploaded_image["image_bytes"], media_type="image/png")
+
+    return StreamingResponse(
+        io.BytesIO(uploaded_image["image_bytes"]),
+        media_type="image/png"
+    )
+
 
 @app.get("/predict/")
 async def predict_image():
     if uploaded_image["original_image"] is None:
         raise HTTPException(status_code=404, detail="No uploaded image found")
 
-    img = uploaded_image["original_image"].resize((128, 128))
-    arr = tf.keras.preprocessing.image.img_to_array(img) / 255.0
-    arr = tf.expand_dims(arr, 0)
-    pred = model.predict(arr)
-    top_idx = np.argmax(pred[0])
-    top_prob = float(pred[0][top_idx])
-    top_label = class_names[top_idx]
+    result = predict_single_image(uploaded_image["original_image"])
 
     return JSONResponse({
-        "predictions": [{
-            "bbox": None,
-            "label": top_label,
-            "confidence": top_prob
-        }]
+        "prediction": result,
+        "count": 1,
+        "mode": "single"
     })
 
+
 @app.get("/predict_many/")
-async def predict_many(threshold: float = 0.6, max_patches: int = 8):
+async def predict_many(threshold: float = 0.5):
     if uploaded_image["original_image"] is None:
         raise HTTPException(status_code=404, detail="No uploaded image found")
 
-    img = uploaded_image["original_image"]
-    width, height = img.size
-    patch_size = min(width, height) // 2
-    stride = patch_size
-    predictions = []
-    patches_info = []
-    count = 0
-    for patch in current_patches["patches"]:
-        try:
-            os.remove(patch["path"])
-        except:
-            pass
-    current_patches["patches"] = []
+    detections = detect_and_classify(
+        uploaded_image["original_image"],
+        score_threshold=threshold
+    )
 
-    for y in range(0, height - patch_size + 1, stride):
-        for x in range(0, width - patch_size + 1, stride):
-            if count >= max_patches:
-                break
-
-            # Crop and resize patch
-            crop = img.crop((x, y, x + patch_size, y + patch_size))
-            crop_resized = crop.resize((128, 128))
-
-            patch_filename = f"patch_{count}_{uuid.uuid4().hex[:8]}.png"
-            patch_path = os.path.join(PATCHES_DIR, patch_filename)
-            crop.save(patch_path)
-
-            patch_info = {
-                "id": count,
-                "filename": patch_filename,
-                "path": patch_path,
-                "bbox": [x, y, x + patch_size, y + patch_size],
-            }
-            patches_info.append(patch_info)
-
-            arr = tf.keras.preprocessing.image.img_to_array(crop_resized) / 255.0
-            arr = tf.expand_dims(arr, 0)
-
-            try:
-                pred = model.predict(arr, verbose=0)
-                top_idx = np.argmax(pred[0])
-                top_prob = float(pred[0][top_idx])
-
-                prediction = {
-                    "patch_id": count,
-                    "bbox": [x, y, x + patch_size, y + patch_size],
-                    "label": class_names[top_idx],
-                    "confidence": top_prob,
-                    "patch_url": f"/patches/{patch_filename}",
-                    "below_threshold": top_prob < threshold,
-                }
-
-                predictions.append(prediction)
-                count += 1
-            except Exception as e:
-                print(f"Prediction error: {e}")
-                continue
-
-        if count >= max_patches:
-            break
-
-    while len(predictions) < max_patches and len(predictions) > 0:
-        copy_pred = predictions[-1].copy()
-        copy_pred["patch_id"] = len(predictions)
-        predictions.append(copy_pred)
-
-    current_patches["patches"] = patches_info
+    # Store detections for visualization
+    uploaded_image["detections"] = detections
 
     return JSONResponse({
-        "predictions": predictions,
-        "total_patches": len(predictions),
-        "patches_above_threshold": len([p for p in predictions if not p["below_threshold"]]),
+        "predictions": detections,
+        "count": len(detections),
+        "mode": "multiple",
+        "threshold": threshold,
+        "visualize_url": f"/visualize/?threshold={threshold}"
     })
 
 
-@app.get("/patches/{filename}")
-async def get_patch(filename: str):
-    patch_path = os.path.join(PATCHES_DIR, filename)
-    if not os.path.exists(patch_path):
-        raise HTTPException(status_code=404, detail="Patch not found")
+@app.get("/visualize/")
+async def visualize_detections(threshold: float = 0.5):
+    if uploaded_image["original_image"] is None:
+        raise HTTPException(status_code=404, detail="No uploaded image found")
 
-    with open(patch_path, "rb") as f:
-        return StreamingResponse(io.BytesIO(f.read()), media_type="image/png")
+    # Get or recompute detections
+    if uploaded_image["detections"] is None:
+        detections = detect_and_classify(
+            uploaded_image["original_image"],
+            score_threshold=threshold
+        )
+        uploaded_image["detections"] = detections
+    else:
+        detections = uploaded_image["detections"]
+
+    # Draw predictions on image
+    annotated_image = draw_predictions_on_image(
+        uploaded_image["original_image"],
+        detections
+    )
+
+    # Convert to bytes
+    img_bytes = io.BytesIO()
+    annotated_image.save(img_bytes, format="PNG")
+    img_bytes.seek(0)
+
+    return StreamingResponse(img_bytes, media_type="image/png")
+
+
+@app.get("/summary/")
+async def get_summary():
+    if uploaded_image["detections"] is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No detections available. Run /predict_many/ first"
+        )
+
+    detections = uploaded_image["detections"]
+
+    # Group by freshness
+    fresh_items = []
+    rotten_items = []
+
+    for det in detections:
+        label = det["label"]
+        if label.startswith("Fresh"):
+            item_name = label.replace("Fresh", "").strip()
+            fresh_items.append({
+                "name": item_name,
+                "confidence": det["confidence"],
+                "bbox": det.get("bbox")
+            })
+        elif label.startswith("Rotten"):
+            item_name = label.replace("Rotten", "").strip()
+            rotten_items.append({
+                "name": item_name,
+                "confidence": det["confidence"],
+                "bbox": det.get("bbox")
+            })
+
+    # Extract unique ingredient names for recipes (only fresh items)
+    ingredients = list(set([item["name"].lower() for item in fresh_items]))
+
+    return JSONResponse({
+        "total_items": len(detections),
+        "fresh_count": len(fresh_items),
+        "rotten_count": len(rotten_items),
+        "fresh_items": fresh_items,
+        "rotten_items": rotten_items,
+        "ingredients_for_recipes": ingredients
+    })
+
+
+@app.delete("/reset/")
+async def reset_session():
+    uploaded_image["image_bytes"] = None
+    uploaded_image["original_image"] = None
+    uploaded_image["detections"] = None
+
+    return {"message": "Session reset successfully"}
+
+
+@app.get("/health/")
+async def health_check():
+    return {
+        "status": "healthy",
+        "environment": ENVIRONMENT,
+        "has_image": uploaded_image["original_image"] is not None
+    }

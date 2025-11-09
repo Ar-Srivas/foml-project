@@ -1,234 +1,466 @@
 "use client";
+import { useState, useRef } from "react";
 
-import { useState } from "react";
-import Link from "next/link";
-import { ImagePreview } from "../components/ImagePreview";
-import { ResultCard } from "../components/ResultCard";
-import { API_BASE_URL } from "../config/api";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+
 export default function Home() {
   const [file, setFile] = useState(null);
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
   const [uploadedImageUrl, setUploadedImageUrl] = useState(null);
+  const [annotatedImageUrl, setAnnotatedImageUrl] = useState(null);
+  const [showAnnotated, setShowAnnotated] = useState(false);
+  const [prediction, setPrediction] = useState(null);
   const [manyResults, setManyResults] = useState(null);
-  const [selectedLabel, setSelectedLabel] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [recipes, setRecipes] = useState(null);
+  const [summary, setSummary] = useState(null);
+  const fileInputRef = useRef(null);
 
   const handleFileChange = (e) => {
-    if (e.target.files[0]) {
-      setFile(e.target.files[0]);
+    const selectedFile = e.target.files[0];
+    if (selectedFile) {
+      setFile(selectedFile);
+      // Reset all states
       setUploadedImageUrl(null);
-      setResult(null);
+      setAnnotatedImageUrl(null);
+      setShowAnnotated(false);
+      setPrediction(null);
       setManyResults(null);
+      setRecipes(null);
+      setSummary(null);
     }
   };
 
-  const uploadImage = async () => {
-    if (!file) return false;
+  const uploadImage = async (file) => {
     const formData = new FormData();
     formData.append("file", file);
 
-    const uploadRes = await fetch(`${API_BASE_URL}/upload/`, {
-      method: "POST",
-      body: formData,
-    });
+    try {
+      const uploadRes = await fetch(`${API_BASE_URL}/upload/`, {
+        method: "POST",
+        body: formData,
+      });
 
-    if (!uploadRes.ok) throw new Error("Upload failed");
+      if (!uploadRes.ok) {
+        const error = await uploadRes.json();
+        throw new Error(error.detail || "Upload failed");
+      }
 
-    setUploadedImageUrl(`${API_BASE_URL}/display/`);
-    return true;
+      const uploadData = await uploadRes.json();
+      console.log("Upload successful:", uploadData);
+
+      // Set the display URL
+      setUploadedImageUrl(`${API_BASE_URL}/display/?t=${Date.now()}`);
+      return true;
+    } catch (error) {
+      console.error("Upload error:", error);
+      alert(`Upload failed: ${error.message}`);
+      return false;
+    }
   };
 
   const handlePredictSingle = async () => {
-    if (!file) return;
-    setLoading(true);
-    setResult(null);
-    setManyResults(null);
-
-    try {
-      await uploadImage();
-
-      const res = await fetch(`${API_BASE_URL}/predict/`);
-      const data = await res.json();
-
-      if (data.predictions && data.predictions.length > 0) {
-        const pred = data.predictions[0];
-        setResult(pred);
-        setSelectedLabel(pred.label);
-      } else {
-        setResult({ label: "No Detection", confidence: 0 });
-      }
-    } catch (err) {
-      console.error(err);
-      setResult({ label: "Error", confidence: 0 });
+    if (!file) {
+      alert("Please select an image first");
+      return;
     }
 
-    setLoading(false);
+    setLoading(true);
+    setPrediction(null);
+    setManyResults(null);
+    setShowAnnotated(false);
+
+    try {
+      // Upload image first
+      const uploaded = await uploadImage(file);
+      if (!uploaded) return;
+
+      // Get single prediction
+      const predRes = await fetch(`${API_BASE_URL}/predict/`);
+      if (!predRes.ok) throw new Error("Prediction failed");
+
+      const predData = await predRes.json();
+      console.log("Single prediction:", predData);
+      setPrediction(predData.prediction);
+    } catch (error) {
+      console.error("Prediction error:", error);
+      alert(`Prediction failed: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handlePredictMany = async () => {
-    if (!file) return;
-    setLoading(true);
-    setResult(null);
-    setManyResults(null);
-
-    try {
-      await uploadImage();
-
-      const res = await fetch(`${API_BASE_URL}/predict_many/?threshold=0.6`);
-      const data = await res.json();
-
-      setManyResults(data);
-    } catch (err) {
-      console.error(err);
-      setManyResults({ predictions: [], error: "Prediction failed" });
+    if (!file) {
+      alert("Please select an image first");
+      return;
     }
 
-    setLoading(false);
+    setLoading(true);
+    setPrediction(null);
+    setManyResults(null);
+    setShowAnnotated(false);
+    setSummary(null);
+    setRecipes(null);
+
+    try {
+      // Upload image first
+      const uploaded = await uploadImage(file);
+      if (!uploaded) return;
+
+      // Get multiple predictions
+      const threshold = 0.5;
+      const predRes = await fetch(`${API_BASE_URL}/predict_many/?threshold=${threshold}`);
+      if (!predRes.ok) throw new Error("Detection failed");
+
+      const predData = await predRes.json();
+      console.log("Multiple predictions:", predData);
+      setManyResults(predData);
+
+      // Get annotated image
+      const vizUrl = `${API_BASE_URL}/visualize/?threshold=${threshold}&t=${Date.now()}`;
+      setAnnotatedImageUrl(vizUrl);
+      setShowAnnotated(true);
+
+      // Get summary
+      const summaryRes = await fetch(`${API_BASE_URL}/summary/`);
+      if (summaryRes.ok) {
+        const summaryData = await summaryRes.json();
+        console.log("Summary:", summaryData);
+        setSummary(summaryData);
+
+        // Fetch recipes with fresh ingredients
+        if (summaryData.ingredients_for_recipes.length > 0) {
+          await fetchRecipes(summaryData.ingredients_for_recipes);
+        }
+      }
+    } catch (error) {
+      console.error("Detection error:", error);
+      alert(`Detection failed: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Extract ingredient name from label (e.g., "FreshApple" -> "apple")
-  const getIngredientFromLabel = (label) => {
-    if (!label) return "";
-    return label.replace(/^(Fresh|Rotten)/, "").toLowerCase();
-  };
+  const fetchRecipes = async (ingredients) => {
+    try {
+      const ingredientsQuery = ingredients.join(",");
+      const recipeRes = await fetch(
+        `${API_BASE_URL}/api/recipes/?ingredients=${ingredientsQuery}&number=6`
+      );
 
-  const handleViewRecipes = () => {
-    if (selectedLabel) {
-      const ingredient = getIngredientFromLabel(selectedLabel);
-      window.location.href = `/recipes?ingredients=${encodeURIComponent(ingredient)}`;
+      if (recipeRes.ok) {
+        const recipeData = await recipeRes.json();
+        console.log("Recipes:", recipeData);
+        setRecipes(recipeData);
+      }
+    } catch (error) {
+      console.error("Recipe fetch error:", error);
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center p-6 bg-gray-50">
-      <h1 className="text-4xl font-bold mb-8 text-black">Food & Veg Predictor</h1>
-
-      <div className="flex flex-col lg:flex-row items-start gap-8 w-full max-w-7xl">
-        {/* Left Section - Upload */}
-        <div className="flex flex-col items-center gap-4">
-          <ImagePreview file={file} />
-
-          <input
-            type="file"
-            onChange={handleFileChange}
-            accept="image/*"
-            className="border p-2 rounded-md w-80 text-sm text-black"
-          />
-
-          <button
-            onClick={handlePredictSingle}
-            disabled={!file || loading}
-            className="px-6 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 w-80 disabled:bg-gray-400"
-          >
-            {loading ? "Predicting..." : "Predict Single"}
-          </button>
-
-          <button
-            onClick={handlePredictMany}
-            disabled={!file || loading}
-            className="px-6 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 w-80 disabled:bg-gray-400"
-          >
-            {loading ? "Predicting Many..." : "Predict Many Patches"}
-          </button>
+    <main className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-8">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="text-center mb-12">
+          <h1 className="text-5xl font-bold text-gray-800 mb-4">
+            Fresh or Rotten Detector
+          </h1>
+          <p className="text-gray-600 text-lg">
+            Upload an image to detect fresh or rotten fruits and vegetables
+          </p>
         </div>
 
-        {/* Middle Section - Uploaded Image */}
-        <div className="flex flex-col items-center gap-4">
-          <h3 className="text-lg font-semibold text-black">Uploaded Image</h3>
-          {uploadedImageUrl ? (
-            <img
-              src={uploadedImageUrl}
-              alt="Uploaded"
-              className="max-w-sm max-h-80 border rounded-md shadow-md"
-              onError={() => setUploadedImageUrl(null)}
-            />
-          ) : (
-            <div className="w-80 h-60 flex items-center justify-center text-gray-400 border rounded-md bg-white">
-              Upload an image to see it here
-            </div>
-          )}
-        </div>
-
-        {/* Right Section - Single Result */}
-        <div className="flex flex-col items-center gap-4">
-          <h3 className="text-lg font-semibold text-black">Single Prediction</h3>
-          {result ? (
-            <div className="w-72">
-              <ResultCard
-                label={result.label}
-                confidence={result.confidence}
-                bbox={result.bbox}
+        {/* Main Content Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+          {/* Left Section - Upload & Actions */}
+          <div className="flex flex-col gap-6">
+            <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-200">
+              <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <svg className="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                Upload Image
+              </h3>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                ref={fileInputRef}
+                className="hidden"
               />
-              {result.label !== "Error" && result.label !== "No Detection" && (
-                <Link
-                  href={`/recipes?ingredients=${encodeURIComponent(
-                    getIngredientFromLabel(result.label)
-                  )}`}
-                  className="mt-4 block w-full text-center px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600"
-                >
-                  What to do with this?
-                </Link>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full py-3 px-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl hover:from-blue-600 hover:to-purple-600 transition-all duration-300 shadow-md hover:shadow-lg font-medium"
+              >
+                {file ? "Change Image" : "Choose Image"}
+              </button>
+              {file && (
+                <p className="mt-3 text-sm text-gray-600 text-center truncate">
+                  📁 {file.name}
+                </p>
               )}
             </div>
-          ) : (
-            <div className="w-72 h-40 flex items-center justify-center text-gray-400 border rounded-md bg-white">
-              Single prediction will appear here
+
+            <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-200">
+              <h3 className="text-xl font-semibold text-gray-800 mb-4">Actions</h3>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={handlePredictSingle}
+                  disabled={!file || loading}
+                  className="w-full py-3 px-4 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all duration-300 disabled:bg-gray-300 disabled:cursor-not-allowed shadow-md hover:shadow-lg font-medium flex items-center justify-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                  {loading ? "Detecting..." : "Detect Single Item"}
+                </button>
+                <button
+                  onClick={handlePredictMany}
+                  disabled={!file || loading}
+                  className="w-full py-3 px-4 bg-purple-500 text-white rounded-xl hover:bg-purple-600 transition-all duration-300 disabled:bg-gray-300 disabled:cursor-not-allowed shadow-md hover:shadow-lg font-medium flex items-center justify-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                  </svg>
+                  {loading ? "Detecting..." : "Detect Multiple Items"}
+                </button>
+              </div>
             </div>
-          )}
+          </div>
+
+          {/* Middle Section - Image Display */}
+          <div className="lg:col-span-2 flex flex-col gap-6">
+            <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-200">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
+                  <svg className="w-6 h-6 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  {showAnnotated ? "Detection Results" : "Uploaded Image"}
+                </h3>
+                {showAnnotated && annotatedImageUrl && (
+                  <button
+                    onClick={() => setShowAnnotated(false)}
+                    className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 text-sm transition-colors"
+                  >
+                    Show Original
+                  </button>
+                )}
+              </div>
+
+              <div className="flex justify-center">
+                {showAnnotated && annotatedImageUrl ? (
+                  <img
+                    src={annotatedImageUrl}
+                    alt="Annotated"
+                    className="max-w-full max-h-[500px] border-2 border-gray-200 rounded-xl shadow-md object-contain"
+                    onError={() => {
+                      console.error("Failed to load annotated image");
+                      setAnnotatedImageUrl(null);
+                    }}
+                  />
+                ) : uploadedImageUrl ? (
+                  <img
+                    src={uploadedImageUrl}
+                    alt="Uploaded"
+                    className="max-w-full max-h-[500px] border-2 border-gray-200 rounded-xl shadow-md object-contain"
+                    onError={() => {
+                      console.error("Failed to load uploaded image");
+                      setUploadedImageUrl(null);
+                    }}
+                  />
+                ) : (
+                  <div className="w-full h-64 flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300 rounded-xl bg-gradient-to-br from-gray-50 to-white">
+                    <div className="text-center">
+                      <svg className="w-16 h-16 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <p className="text-lg font-medium">No image uploaded</p>
+                      <p className="text-sm mt-1">Upload an image to get started</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Single Prediction Result */}
+            {prediction && (
+              <div className="bg-gradient-to-br from-green-50 to-emerald-50 p-6 rounded-2xl shadow-lg border border-green-200 animate-fadeIn">
+                <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                  <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
+                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  Single Item Detection
+                </h3>
+                <div className="bg-white p-4 rounded-xl">
+                  <div className="flex items-center justify-between">
+                    <span className="text-lg font-semibold text-gray-800">
+                      {prediction.label.replace("Fresh", "Fresh ").replace("Rotten", "Rotten ")}
+                    </span>
+                    <span className="px-4 py-2 bg-green-500 text-white rounded-lg font-medium">
+                      {(prediction.confidence * 100).toFixed(2)}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Summary */}
+            {summary && (
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-6 rounded-2xl shadow-lg border border-blue-200 animate-fadeIn">
+                <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                  <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 00-2-2m0 0h2a2 2 0 012 2v0m-6 0h6" />
+                    </svg>
+                  </div>
+                  Detection Summary
+                </h3>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="bg-white p-4 rounded-xl text-center">
+                    <div className="text-3xl font-bold text-gray-800">{summary.total_items}</div>
+                    <div className="text-sm text-gray-600 mt-1">Total Items</div>
+                  </div>
+                  <div className="bg-white p-4 rounded-xl text-center">
+                    <div className="text-3xl font-bold text-green-600">{summary.fresh_count}</div>
+                    <div className="text-sm text-gray-600 mt-1">Fresh Items</div>
+                  </div>
+                  <div className="bg-white p-4 rounded-xl text-center">
+                    <div className="text-3xl font-bold text-red-600">{summary.rotten_count}</div>
+                    <div className="text-sm text-gray-600 mt-1">Rotten Items</div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* Many Predictions Section */}
-      {manyResults && (
-        <div className="w-full max-w-7xl mt-8">
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h2 className="text-2xl font-bold mb-4 text-black">
-              Patch Analysis Results
-            </h2>
-
-            <div className="mb-4 text-sm text-gray-600">
-              <span className="font-medium">Total Patches:</span>{" "}
-              {manyResults.total_patches} |
-              <span className="font-medium ml-2">Above Threshold:</span>{" "}
-              {manyResults.patches_above_threshold}
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-              {manyResults.predictions?.map((prediction, idx) => (
+        {/* Detection Results Grid */}
+        {manyResults && manyResults.predictions && manyResults.predictions.length > 0 && (
+          <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-200 mb-8 animate-fadeIn">
+            <h3 className="text-2xl font-bold text-gray-800 mb-6">Detected Items ({manyResults.count})</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {manyResults.predictions.map((pred, idx) => (
                 <div
                   key={idx}
-                  className={`border rounded-lg p-3 ${
-                    prediction.below_threshold
-                      ? "bg-gray-100 border-gray-300"
-                      : "bg-green-50 border-green-300"
+                  className={`group relative border-2 rounded-xl p-3 transition-all duration-300 hover:scale-105 hover:shadow-xl ${
+                    pred.label.startsWith("Fresh")
+                      ? "bg-gradient-to-br from-green-50 to-emerald-50 border-green-300 hover:border-green-500"
+                      : "bg-gradient-to-br from-red-50 to-rose-50 border-red-300 hover:border-red-500"
                   }`}
                 >
-                  <img
-                    src={`${API_BASE_URL}/${prediction.patch_url}`}
-                    alt={`Patch ${prediction.patch_id}`}
-                    className="w-full h-20 object-cover rounded mb-2"
-                  />
-                  <div className="text-xs">
-                    <p className="font-medium text-black truncate">
-                      {prediction.label}
+                  <div className={`absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center shadow-lg z-10 ${
+                    pred.label.startsWith("Fresh") ? "bg-green-500" : "bg-red-500"
+                  }`}>
+                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                      {pred.label.startsWith("Fresh") ? (
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      ) : (
+                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                      )}
+                    </svg>
+                  </div>
+                  <div className="text-center">
+                    <p className="font-semibold text-gray-800 text-sm mb-1">
+                      {pred.label.replace("Fresh", "").replace("Rotten", "")}
                     </p>
-                    <p
-                      className={`${
-                        prediction.confidence > 0.6
-                          ? "text-green-600"
-                          : "text-orange-500"
-                      }`}
-                    >
-                      {(prediction.confidence * 100).toFixed(1)}%
+                    <p className="text-xs text-gray-600">
+                      {(pred.confidence * 100).toFixed(1)}%
                     </p>
-                    <p className="text-gray-500">Patch {prediction.patch_id}</p>
+                    <p className={`text-xs font-medium mt-1 ${
+                      pred.label.startsWith("Fresh") ? "text-green-600" : "text-red-600"
+                    }`}>
+                      {pred.label.startsWith("Fresh") ? "Fresh" : "Rotten"}
+                    </p>
                   </div>
                 </div>
               ))}
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+
+        {/* Recipes Section */}
+        {recipes && recipes.length > 0 && (
+          <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-200 animate-fadeIn">
+            <h3 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+              <div className="w-10 h-10 bg-orange-500 rounded-lg flex items-center justify-center">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+              </div>
+              Recipe Suggestions ({recipes.length})
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {recipes.map((recipe) => (
+                <div
+                  key={recipe.id}
+                  className="group bg-gradient-to-br from-white to-gray-50 border border-gray-200 rounded-xl overflow-hidden hover:shadow-xl transition-all duration-300"
+                >
+                  <div className="relative h-48 overflow-hidden">
+                    <img
+                      src={recipe.image}
+                      alt={recipe.title}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                    />
+                  </div>
+                  <div className="p-4">
+                    <h4 className="font-semibold text-gray-800 mb-2 line-clamp-2">
+                      {recipe.title}
+                    </h4>
+                    <div className="flex items-center gap-2 text-sm text-gray-600 mb-3">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span>{recipe.readyInMinutes} mins</span>
+                      <span className="mx-1">•</span>
+                      <span>{recipe.servings} servings</span>
+                    </div>
+                    <a
+                      href={recipe.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-sm font-medium"
+                    >
+                      View Recipe
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <style jsx>{`
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .animate-fadeIn {
+          animation: fadeIn 0.5s ease-out;
+        }
+
+        .line-clamp-2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+      `}</style>
+    </main>
   );
 }
