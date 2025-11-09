@@ -19,10 +19,16 @@ def predict_single_image(image_pil):
     arr = tf.keras.preprocessing.image.img_to_array(img) / 255.0
     arr = tf.expand_dims(arr, 0)
     pred = model.predict(arr, verbose=0)
-    top_idx = np.argmax(pred[0])
+
+    # Get top 2 predictions
+    top_2_indices = np.argsort(pred[0])[-2:][::-1]
 
     return {
-        "label": class_names[top_idx],
-        "confidence": float(pred[0][top_idx]),
-        "bbox": None
+        "label": class_names[top_2_indices[0]],
+        "confidence": float(pred[0][top_2_indices[0]]),
+        "bbox": None,
+        "second_prediction": {
+            "label": class_names[top_2_indices[1]],
+            "confidence": float(pred[0][top_2_indices[1]])
+        }
     }

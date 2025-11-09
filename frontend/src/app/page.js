@@ -164,10 +164,10 @@ export default function Home() {
         {/* Header */}
         <div className="text-center mb-12">
           <h1 className="text-5xl font-bold text-gray-800 mb-4">
-            Fresh or Rotten Detector
+            FoodLens
           </h1>
           <p className="text-gray-600 text-lg">
-            Upload an image to detect fresh or rotten fruits and vegetables
+            Upload an image to detect fresh or rotten fruits and vegetables.
           </p>
         </div>
 
@@ -210,10 +210,7 @@ export default function Home() {
                   disabled={!file || loading}
                   className="w-full py-3 px-4 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all duration-300 disabled:bg-gray-300 disabled:cursor-not-allowed shadow-md hover:shadow-lg font-medium flex items-center justify-center gap-2"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
+
                   {loading ? "Detecting..." : "Detect Single Item"}
                 </button>
                 <button
@@ -221,9 +218,7 @@ export default function Home() {
                   disabled={!file || loading}
                   className="w-full py-3 px-4 bg-purple-500 text-white rounded-xl hover:bg-purple-600 transition-all duration-300 disabled:bg-gray-300 disabled:cursor-not-allowed shadow-md hover:shadow-lg font-medium flex items-center justify-center gap-2"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-                  </svg>
+
                   {loading ? "Detecting..." : "Detect Multiple Items"}
                 </button>
               </div>
@@ -285,29 +280,59 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Single Prediction Result */}
             {prediction && (
-              <div className="bg-gradient-to-br from-green-50 to-emerald-50 p-6 rounded-2xl shadow-lg border border-green-200 animate-fadeIn">
-                <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                  <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
-                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+              <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-200 animate-fadeIn">
+                <h3 className="text-2xl font-bold text-gray-800 mb-6">Detection Results</h3>
+                <div className="space-y-4">
+                  {/* Primary Prediction */}
+                  <div className="p-6 rounded-xl border border-gray-300 bg-gray-50 transition-all duration-300">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-lg font-semibold text-gray-800">Primary Detection</h4>
+                      <span className="px-4 py-2 rounded-full text-sm font-medium bg-gray-200 text-gray-800">
+                        {prediction.label}
+                      </span>
+                    </div>
+                    <div className="mt-3">
+                      <div className="flex justify-between text-sm text-gray-600 mb-2">
+                        <span>Confidence Level</span>
+                        <span className="font-semibold">{(prediction.confidence * 100).toFixed(2)}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gray-500 transition-all duration-1000"
+                          style={{ width: `${prediction.confidence * 100}%` }}
+                        />
+                      </div>
+                    </div>
                   </div>
-                  Single Item Detection
-                </h3>
-                <div className="bg-white p-4 rounded-xl">
-                  <div className="flex items-center justify-between">
-                    <span className="text-lg font-semibold text-gray-800">
-                      {prediction.label.replace("Fresh", "Fresh ").replace("Rotten", "Rotten ")}
-                    </span>
-                    <span className="px-4 py-2 bg-green-500 text-white rounded-lg font-medium">
-                      {(prediction.confidence * 100).toFixed(2)}%
-                    </span>
-                  </div>
+
+                  {/* Secondary Prediction */}
+                  {prediction.second_prediction && (
+                    <div className="p-6 rounded-xl border border-gray-300 bg-gray-50 transition-all duration-300">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-lg font-semibold text-gray-800">Second Most Probable</h4>
+                        <span className="px-4 py-2 rounded-full text-sm font-medium bg-gray-200 text-gray-800">
+                          {prediction.second_prediction.label}
+                        </span>
+                      </div>
+                      <div className="mt-3">
+                        <div className="flex justify-between text-sm text-gray-600 mb-2">
+                          <span>Confidence Level</span>
+                          <span className="font-semibold">{(prediction.second_prediction.confidence * 100).toFixed(2)}%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-gray-500 transition-all duration-1000"
+                            style={{ width: `${prediction.second_prediction.confidence * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
+
 
             {/* Summary */}
             {summary && (
@@ -341,47 +366,43 @@ export default function Home() {
 
         {/* Detection Results Grid */}
         {manyResults && manyResults.predictions && manyResults.predictions.length > 0 && (
-          <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-200 mb-8 animate-fadeIn">
-            <h3 className="text-2xl font-bold text-gray-800 mb-6">Detected Items ({manyResults.count})</h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {manyResults.predictions.map((pred, idx) => (
-                <div
-                  key={idx}
-                  className={`group relative border-2 rounded-xl p-3 transition-all duration-300 hover:scale-105 hover:shadow-xl ${
-                    pred.label.startsWith("Fresh")
-                      ? "bg-gradient-to-br from-green-50 to-emerald-50 border-green-300 hover:border-green-500"
-                      : "bg-gradient-to-br from-red-50 to-rose-50 border-red-300 hover:border-red-500"
-                  }`}
-                >
-                  <div className={`absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center shadow-lg z-10 ${
-                    pred.label.startsWith("Fresh") ? "bg-green-500" : "bg-red-500"
-                  }`}>
-                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                      {pred.label.startsWith("Fresh") ? (
-                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                      ) : (
-                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                      )}
-                    </svg>
-                  </div>
-                  <div className="text-center">
-                    <p className="font-semibold text-gray-800 text-sm mb-1">
-                      {pred.label.replace("Fresh", "").replace("Rotten", "")}
-                    </p>
-                    <p className="text-xs text-gray-600">
-                      {(pred.confidence * 100).toFixed(1)}%
-                    </p>
-                    <p className={`text-xs font-medium mt-1 ${
-                      pred.label.startsWith("Fresh") ? "text-green-600" : "text-red-600"
-                    }`}>
-                      {pred.label.startsWith("Fresh") ? "Fresh" : "Rotten"}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
+  <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-200 mb-8 animate-fadeIn">
+    <h3 className="text-2xl font-bold text-gray-800 mb-6">
+      Detected Items ({manyResults.count})
+    </h3>
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+      {manyResults.predictions.map((pred, idx) => (
+        <div
+          key={idx}
+          className={`group relative border-2 rounded-xl p-3 transition-all duration-300 hover:scale-105 hover:shadow-xl ${
+            pred.label.startsWith("Fresh")
+              ? "bg-gradient-to-br from-green-50 to-emerald-50 border-green-300 hover:border-green-500"
+              : "bg-gradient-to-br from-red-50 to-rose-50 border-red-300 hover:border-red-500"
+          }`}
+        >
+          <div className="text-center">
+            <p className="font-semibold text-gray-800 text-sm mb-1">
+              {pred.label.replace("Fresh", "").replace("Rotten", "")}
+            </p>
+            <p className="text-xs text-gray-600">
+              {(pred.confidence * 100).toFixed(1)}%
+            </p>
+            <p
+              className={`text-xs font-medium mt-1 ${
+                pred.label.startsWith("Fresh")
+                  ? "text-green-600"
+                  : "text-red-600"
+              }`}
+            >
+              {pred.label.startsWith("Fresh") ? "Fresh" : "Rotten"}
+            </p>
           </div>
-        )}
+        </div>
+      ))}
+    </div>
+  </div>
+)}
+
 
         {/* Recipes Section */}
         {recipes && recipes.length > 0 && (
